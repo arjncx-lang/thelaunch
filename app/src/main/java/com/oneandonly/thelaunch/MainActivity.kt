@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -145,6 +146,12 @@ class MainActivity : AppCompatActivity() {
         root.setBackgroundColor(
             if (prefs.getBoolean("show_wallpaper", true)) 0xDD000000.toInt() else 0xFF000000.toInt()
         )
+
+        requestedOrientation = when (prefs.getString("orientation_lock", "none")) {
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
 
         viewModel.refreshApps()
 

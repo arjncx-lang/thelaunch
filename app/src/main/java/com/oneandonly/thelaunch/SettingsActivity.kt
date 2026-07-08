@@ -44,6 +44,20 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().putBoolean("show_wallpaper", checked).apply()
         }
 
+        val switchPortraitLock = findViewById<Switch>(R.id.switchPortraitLock)
+        val switchLandscapeLock = findViewById<Switch>(R.id.switchLandscapeLock)
+        val orientationLock = prefs.getString("orientation_lock", "none")
+        switchPortraitLock.isChecked = orientationLock == "portrait"
+        switchLandscapeLock.isChecked = orientationLock == "landscape"
+        switchPortraitLock.setOnCheckedChangeListener { _, checked ->
+            if (checked) switchLandscapeLock.isChecked = false
+            prefs.edit().putString("orientation_lock", if (checked) "portrait" else "none").apply()
+        }
+        switchLandscapeLock.setOnCheckedChangeListener { _, checked ->
+            if (checked) switchPortraitLock.isChecked = false
+            prefs.edit().putString("orientation_lock", if (checked) "landscape" else "none").apply()
+        }
+
         val tvVersion = findViewById<TextView>(R.id.tvVersion)
         tvVersion.text = try {
             "v${packageManager.getPackageInfo(packageName, 0).versionName}"
