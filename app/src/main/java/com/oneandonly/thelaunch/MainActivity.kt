@@ -90,8 +90,12 @@ class MainActivity : AppCompatActivity() {
             }
             etSearch.text?.clear()
             val job = viewModel.refreshApps(forceReload = true)
-            job.invokeOnCompletion {
-                runOnUiThread { spin.cancel() }
+            lifecycleScope.launch {
+                // refreshApps() often finishes in under a frame (no network involved), which would
+                // cancel the animator before it ever renders — force at least one visible rotation.
+                job.join()
+                delay(700)
+                spin.cancel()
             }
         }
 
