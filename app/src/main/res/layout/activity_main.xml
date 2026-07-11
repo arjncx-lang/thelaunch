@@ -41,6 +41,15 @@
                 android:textSize="13sp" />
 
             <ImageView
+                android:id="@+id/btnSearch"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_search"
+                android:padding="8dp"
+                android:alpha="0.5"
+                android:contentDescription="Search apps" />
+
+            <ImageView
                 android:id="@+id/btnAddShortcut"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
@@ -82,10 +91,12 @@
         android:inputType="text"
         android:imeOptions="actionSearch"
         android:drawableStart="@drawable/ic_search"
+        android:drawableEnd="@drawable/ic_close"
         android:drawablePadding="8dp"
         android:paddingHorizontal="12dp"
         android:paddingVertical="10dp"
-        android:singleLine="true" />
+        android:singleLine="true"
+        android:visibility="gone" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvApps"

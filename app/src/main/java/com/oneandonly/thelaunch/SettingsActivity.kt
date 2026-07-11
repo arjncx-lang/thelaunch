@@ -2,6 +2,7 @@ package com.oneandonly.thelaunch
 
 import android.content.Context
 import android.os.Bundle
+import android.view.Gravity
 import android.widget.ImageView
 import android.widget.Switch
 import android.widget.TextView
@@ -9,9 +10,14 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import android.widget.LinearLayout
 
 class SettingsActivity : AppCompatActivity() {
+
+    private val viewModel by lazy { ViewModelProvider(this)[LauncherViewModel::class.java] }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,17 +51,17 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         val switchPortraitLock = findViewById<Switch>(R.id.switchPortraitLock)
-        val switchLandscapeLock = findViewById<Switch>(R.id.switchLandscapeLock)
-        val orientationLock = prefs.getString("orientation_lock", "none")
-        switchPortraitLock.isChecked = orientationLock == "portrait"
-        switchLandscapeLock.isChecked = orientationLock == "landscape"
+        switchPortraitLock.isChecked = prefs.getString("orientation_lock", "none") == "portrait"
         switchPortraitLock.setOnCheckedChangeListener { _, checked ->
-            if (checked) switchLandscapeLock.isChecked = false
             prefs.edit().putString("orientation_lock", if (checked) "portrait" else "none").apply()
         }
-        switchLandscapeLock.setOnCheckedChangeListener { _, checked ->
-            if (checked) switchPortraitLock.isChecked = false
-            prefs.edit().putString("orientation_lock", if (checked) "landscape" else "none").apply()
+
+        val llHiddenApps = findViewById<LinearLayout>(R.id.llHiddenApps)
+        val tvNoHiddenApps = findViewById<TextView>(R.id.tvNoHiddenApps)
+        lifecycleScope.launch {
+            viewModel.hiddenApps.collect { hidden ->
+                renderHiddenApps(llHiddenApps, tvNoHiddenApps, hidden)
+            }
         }
 
         val tvVersion = findViewById<TextView>(R.id.tvVersion)
@@ -64,6 +70,45 @@ class SettingsActivity : AppCompatActivity() {
         } catch (_: Exception) { "" }
 
         findViewById<ImageView>(R.id.btnBack).setOnClickListener { finish() }
+    }
+
+    private fun renderHiddenApps(container: LinearLayout, emptyLabel: TextView, hidden: List<AppInfo>) {
+        container.removeAllViews()
+        emptyLabel.visibility = if (hidden.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+
+        val iconPx = (36 * resources.displayMetrics.density).toInt()
+        hidden.forEach { app ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundColor(0x22FFFFFF)
+                setPadding(16.dp, 12.dp, 16.dp, 12.dp)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.topMargin = 1.dp }
+            }
+            ImageView(this).apply {
+                setImageBitmap(app.icon)
+                layoutParams = LinearLayout.LayoutParams(iconPx, iconPx).also { it.marginEnd = 12.dp }
+                row.addView(this)
+            }
+            TextView(this).apply {
+                text = app.label
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 15f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                row.addView(this)
+            }
+            TextView(this).apply {
+                text = "Show"
+                setTextColor(0xFF64B5F6.toInt())
+                textSize = 14f
+                setPadding(12.dp, 6.dp, 12.dp, 6.dp)
+                setOnClickListener { viewModel.unhideApp(app) }
+                row.addView(this)
+            }
+            container.addView(row)
+        }
     }
 
     private val Int.dp get() = (this * resources.displayMetrics.density).toInt()

@@ -45,9 +45,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private val _installedApps = MutableStateFlow<List<AppInfo>>(emptyList())
     private val _shortcuts = MutableStateFlow<List<AppInfo>>(emptyList())
+    private val _hiddenIds = MutableStateFlow<List<String>>(emptyList())
 
-    val apps: StateFlow<List<AppInfo>> = combine(_installedApps, _shortcuts) { installed, shortcuts ->
-        (installed + shortcuts).sortedWith(compareBy({ it.label.lowercase() }, { it.isWorkProfile }))
+    val apps: StateFlow<List<AppInfo>> = combine(_installedApps, _shortcuts, _hiddenIds) { installed, shortcuts, hidden ->
+        (installed + shortcuts)
+            .filterNot { hidden.contains(it.id) }
+            .sortedWith(compareBy({ it.label.lowercase() }, { it.isWorkProfile }))
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val hiddenApps: StateFlow<List<AppInfo>> = combine(_installedApps, _shortcuts, _hiddenIds) { installed, shortcuts, hidden ->
+        (installed + shortcuts)
+            .filter { hidden.contains(it.id) }
+            .sortedWith(compareBy({ it.label.lowercase() }, { it.isWorkProfile }))
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _favorites = MutableStateFlow<List<String>>(emptyList())
@@ -60,6 +69,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     init {
         loadFavorites()
         loadShortcuts()
+        loadHidden()
         refreshApps()
     }
 
@@ -99,6 +109,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun isFavorite(packageName: String) = _favorites.value.contains(packageName)
+
+    fun hideApp(app: AppInfo) {
+        if (_hiddenIds.value.contains(app.id)) return
+        _hiddenIds.value = _hiddenIds.value + app.id
+        persistHidden()
+        if (isFavorite(app.packageName)) toggleFavorite(app.packageName)
+    }
+
+    fun unhideApp(app: AppInfo) {
+        _hiddenIds.value = _hiddenIds.value - app.id
+        persistHidden()
+    }
 
     fun launchApp(app: AppInfo) {
         try {
@@ -202,6 +224,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private fun loadFavorites() {
         val saved = prefs.getString("favorites", "") ?: ""
         _favorites.value = if (saved.isBlank()) emptyList()
+        else saved.split(",").filter { it.isNotBlank() }
+    }
+
+    private fun persistHidden() = prefs.edit().putString("hidden_apps", _hiddenIds.value.joinToString(",")).apply()
+
+    private fun loadHidden() {
+        val saved = prefs.getString("hidden_apps", "") ?: ""
+        _hiddenIds.value = if (saved.isBlank()) emptyList()
         else saved.split(",").filter { it.isNotBlank() }
     }
 }

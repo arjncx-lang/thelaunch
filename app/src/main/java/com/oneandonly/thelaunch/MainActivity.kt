@@ -13,8 +13,10 @@ import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -64,6 +66,7 @@ class MainActivity : AppCompatActivity() {
         val btnSettings = findViewById<ImageView>(R.id.btnSettings)
         val btnRefresh = findViewById<ImageView>(R.id.btnRefresh)
         val btnAddShortcut = findViewById<ImageView>(R.id.btnAddShortcut)
+        val btnSearch = findViewById<ImageView>(R.id.btnSearch)
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { _, insets ->
             val sb = insets.getInsets(WindowInsetsCompat.Type.statusBars())
@@ -93,6 +96,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnAddShortcut.setOnClickListener { showAddShortcutDialog() }
+
+        btnSearch.setOnClickListener {
+            if (etSearch.visibility == View.VISIBLE) closeSearch(etSearch) else openSearch(etSearch)
+        }
+
+        // The X (drawableEnd) closes the search bar; without also hiding the keyboard here,
+        // the EditText stays focused-but-invisible and the keyboard stays stuck open.
+        etSearch.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP) {
+                val drawableEnd = etSearch.compoundDrawables[2]
+                if (drawableEnd != null && event.rawX >= etSearch.right - etSearch.paddingEnd - drawableEnd.bounds.width()) {
+                    closeSearch(etSearch)
+                    return@setOnTouchListener true
+                }
+            }
+            false
+        }
 
         // Clock loop — respects show_time pref
         lifecycleScope.launch {
@@ -162,11 +182,15 @@ class MainActivity : AppCompatActivity() {
             if (prefs.getBoolean("show_wallpaper", true)) 0xDD000000.toInt() else 0xFF000000.toInt()
         )
 
-        requestedOrientation = when (prefs.getString("orientation_lock", "none")) {
-            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
+        requestedOrientation = if (prefs.getString("orientation_lock", "none") == "portrait")
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        else
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+        // Returning to the launcher (e.g. after opening an app from search) should land on the
+        // plain app-grid screen, not leave the search bar open from before we navigated away.
+        val etSearch = findViewById<EditText>(R.id.etSearch)
+        if (etSearch.visibility == View.VISIBLE) closeSearch(etSearch)
 
         viewModel.refreshApps()
 
@@ -187,6 +211,21 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         try { unregisterReceiver(packageReceiver) } catch (_: Exception) {}
+    }
+
+    private fun openSearch(etSearch: EditText) {
+        etSearch.visibility = View.VISIBLE
+        etSearch.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(etSearch, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun closeSearch(etSearch: EditText) {
+        etSearch.text?.clear()
+        etSearch.clearFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(etSearch.windowToken, 0)
+        etSearch.visibility = View.GONE
     }
 
     private fun updateDock(dock: LinearLayout, apps: List<AppInfo>, favorites: List<String>) {
@@ -250,6 +289,7 @@ class MainActivity : AppCompatActivity() {
         val options = buildList {
             add("Open")
             add(if (isFav) "Remove from Dock" else "Add to Dock")
+            add("Hide App")
             if (app.isShortcut) add("Delete Shortcut") else add("App Info")
         }.toTypedArray()
 
@@ -259,6 +299,7 @@ class MainActivity : AppCompatActivity() {
                 when (options[i]) {
                     "Open" -> viewModel.launchApp(app)
                     "Remove from Dock", "Add to Dock" -> viewModel.toggleFavorite(app.packageName)
+                    "Hide App" -> viewModel.hideApp(app)
                     "Delete Shortcut" -> viewModel.deleteShortcut(app)
                     "App Info" -> startActivity(
                         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

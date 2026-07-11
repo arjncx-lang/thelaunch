@@ -129,13 +129,27 @@
             android:paddingVertical="14dp"
             android:layout_marginTop="1dp">
 
-            <TextView
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Lock Portrait"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Lock Portrait"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="(disable to allow auto-rotate)"
+                    android:textColor="#7C7C9C"
+                    android:textSize="11sp"
+                    android:layout_marginTop="2dp" />
+            </LinearLayout>
 
             <Switch
                 android:id="@+id/switchPortraitLock"
@@ -144,31 +158,33 @@
                 android:checked="false" />
         </LinearLayout>
 
-        <LinearLayout
-            android:id="@+id/rowLandscapeLock"
+        <!-- Hidden apps section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="HIDDEN APPS"
+            android:textColor="#7C7C9C"
+            android:textSize="11sp"
+            android:letterSpacing="0.12"
+            android:layout_marginTop="28dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvNoHiddenApps"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:text="No hidden apps"
+            android:textColor="#7C7C9C"
+            android:textSize="13sp"
             android:background="#22FFFFFF"
             android:paddingHorizontal="16dp"
-            android:paddingVertical="14dp"
-            android:layout_marginTop="1dp">
+            android:paddingVertical="14dp" />
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Lock Landscape"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp" />
-
-            <Switch
-                android:id="@+id/switchLandscapeLock"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="false" />
-        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/llHiddenApps"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
 
         <!-- About section -->
         <TextView
