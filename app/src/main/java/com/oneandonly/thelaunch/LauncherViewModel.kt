@@ -85,6 +85,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val myPkg = getApplication<Application>().packageName
         val myUser = Process.myUserHandle()
         val density = getApplication<Application>().resources.displayMetrics.densityDpi
+        // Read shape/scale once per refresh instead of once per icon — refreshApps() can iterate
+        // hundreds of installed activities.
+        val settingsPrefs = getApplication<Application>().getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val shape = settingsPrefs.getString("icon_shape", "none")
+        val scale = settingsPrefs.getFloat("icon_scale", 1.0f)
         // Cache must be keyed per-activity, not per-package: some packages (e.g. Google/Gemini,
         // Amazon/Amazon Pay) expose multiple launcher activities under the same packageName, and
         // collapsing them onto one cache key caused duplicate icons and launched the wrong activity.
@@ -100,7 +105,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         label = info.label.toString(),
                         packageName = info.applicationInfo.packageName,
                         activityName = info.componentName.className,
-                        icon = applyIconShape(applyIconScale(rawIconBitmap(info.getIcon(density)))),
+                        icon = applyIconShape(applyIconScale(rawIconBitmap(info.getIcon(density)), scale), shape),
                         userHandle = userHandle,
                         isWorkProfile = userHandle != myUser
                     )
@@ -126,11 +131,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return bmp
     }
 
-    private fun applyIconScale(bitmap: Bitmap): Bitmap {
-        val scale = getApplication<Application>()
-            .getSharedPreferences("settings", Context.MODE_PRIVATE)
-            .getFloat("icon_scale", 1.0f)
-        if (scale == 1.0f) return bitmap
+    // Always re-composes into an iconPx canvas — even at 100% zoom — so every icon (installed
+    // app or fetched favicon of arbitrary size) ends up pixel-uniform instead of favicons staying
+    // at whatever size the network happened to return.
+    private fun applyIconScale(bitmap: Bitmap, scale: Float = currentIconScale()): Bitmap {
         val output = Bitmap.createBitmap(iconPx, iconPx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         val newSize = iconPx * scale
@@ -141,10 +145,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return output
     }
 
-    private fun applyIconShape(bitmap: Bitmap): Bitmap {
-        val shape = getApplication<Application>()
-            .getSharedPreferences("settings", Context.MODE_PRIVATE)
-            .getString("icon_shape", "none")
+    private fun applyIconShape(bitmap: Bitmap, shape: String? = currentIconShape()): Bitmap {
         if (shape != "round") return bitmap
         val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
@@ -154,6 +155,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         canvas.drawBitmap(bitmap, 0f, 0f, paint)
         return output
     }
+
+    private fun settingsPrefs() = getApplication<Application>().getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private fun currentIconScale() = settingsPrefs().getFloat("icon_scale", 1.0f)
+    private fun currentIconShape() = settingsPrefs().getString("icon_shape", "none")
 
     fun toggleFavorite(packageName: String) {
         val list = _favorites.value.toMutableList()
@@ -192,15 +197,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun fetchFavicon(url: String): Bitmap? = withContext(Dispatchers.IO) {
+        var conn: HttpURLConnection? = null
         try {
             val normalized = if (!url.startsWith("http://") && !url.startsWith("https://")) "https://$url" else url
             val host = Uri.parse(normalized).host ?: return@withContext null
-            val conn = URL("https://www.google.com/s2/favicons?sz=128&domain=$host")
+            conn = URL("https://www.google.com/s2/favicons?sz=128&domain=$host")
                 .openConnection() as HttpURLConnection
             conn.connectTimeout = 5000
             conn.readTimeout = 5000
             conn.inputStream.use { BitmapFactory.decodeStream(it) }
-        } catch (_: Exception) { null }
+        } catch (_: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
     }
 
     fun defaultWebIcon(): Bitmap {

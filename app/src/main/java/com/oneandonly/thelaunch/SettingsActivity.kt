@@ -16,6 +16,7 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -110,7 +111,11 @@ class SettingsActivity : AppCompatActivity() {
     // matches exactly what the app grid will show, using the launcher's own adaptive icon as the sample.
     private fun setupIconScale(prefs: android.content.SharedPreferences) {
         val previewPx = (40 * resources.displayMetrics.density).toInt()
-        val previewDrawable = packageManager.getApplicationIcon(packageName)
+        val previewDrawable = try {
+            packageManager.getApplicationIcon(packageName)
+        } catch (_: Exception) {
+            ContextCompat.getDrawable(this, R.drawable.ic_web)!!
+        }
         val rawPreview = composeRaw(previewDrawable, previewPx)
 
         val ivPreview = findViewById<ImageView>(R.id.ivIconScalePreview)
@@ -131,10 +136,10 @@ class SettingsActivity : AppCompatActivity() {
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                 render(progress)
-                prefs.edit().putFloat("icon_scale", 0.5f + progress / 100f).apply()
             }
             override fun onStartTrackingTouch(sb: SeekBar) {}
             override fun onStopTrackingTouch(sb: SeekBar) {
+                prefs.edit().putFloat("icon_scale", 0.5f + sb.progress / 100f).apply()
                 viewModel.refreshApps(forceReload = true)
             }
         })

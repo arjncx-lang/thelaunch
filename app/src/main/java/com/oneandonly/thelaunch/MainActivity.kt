@@ -55,6 +55,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Seed from current prefs so the first onResume() (which fires right after onCreate)
+        // doesn't see a "change" and force a redundant second icon reload right after the
+        // ViewModel's own init already loaded everything once.
+        val settingsPrefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        lastIconShape = "${settingsPrefs.getString("icon_shape", "none")}|${settingsPrefs.getFloat("icon_scale", 1.0f)}"
+
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
 
