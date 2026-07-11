@@ -113,6 +113,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (_: Exception) { emptyList() }
         }
+
+        // Shortcut icons are cached in _shortcuts and only rebuilt here (not by loadShortcuts,
+        // which only runs once at startup) — otherwise a shape/zoom change in Settings would
+        // repaint every installed app's icon but leave shortcuts stuck on their old look.
+        if (forceReload) reshapeShortcuts(shape, cornerRadius)
+    }
+
+    private fun reshapeShortcuts(shape: String?, cornerRadius: Float) {
+        _shortcuts.value = _shortcuts.value.map { shortcut ->
+            val iconFile = File(shortcutIconDir, "${shortcut.packageName}.png")
+            val rawIcon = if (iconFile.exists()) BitmapFactory.decodeFile(iconFile.absolutePath) else defaultWebIcon()
+            shortcut.copy(icon = applyIconShape(normalizeIconSize(rawIcon), shape, cornerRadius))
+        }
     }
 
     // AdaptiveIconDrawable.draw() clips itself to the device's current system icon-mask shape
