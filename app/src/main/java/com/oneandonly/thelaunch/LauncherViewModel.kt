@@ -90,6 +90,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val settingsPrefs = getApplication<Application>().getSharedPreferences("settings", Context.MODE_PRIVATE)
         val shape = settingsPrefs.getString("icon_shape", "none")
         val scale = settingsPrefs.getFloat("icon_scale", 1.0f)
+        val cornerRadius = settingsPrefs.getFloat("icon_corner_radius", 0.2f)
         // Cache must be keyed per-activity, not per-package: some packages (e.g. Google/Gemini,
         // Amazon/Amazon Pay) expose multiple launcher activities under the same packageName, and
         // collapsing them onto one cache key caused duplicate icons and launched the wrong activity.
@@ -105,7 +106,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         label = info.label.toString(),
                         packageName = info.applicationInfo.packageName,
                         activityName = info.componentName.className,
-                        icon = applyIconShape(applyIconScale(rawIconBitmap(info.getIcon(density)), scale), shape),
+                        icon = applyIconShape(applyIconScale(rawIconBitmap(info.getIcon(density)), scale), shape, cornerRadius),
                         userHandle = userHandle,
                         isWorkProfile = userHandle != myUser
                     )
@@ -145,12 +146,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return output
     }
 
-    private fun applyIconShape(bitmap: Bitmap, shape: String? = currentIconShape()): Bitmap {
-        if (shape != "round") return bitmap
+    private fun applyIconShape(
+        bitmap: Bitmap,
+        shape: String? = currentIconShape(),
+        cornerRadius: Float = currentCornerRadius()
+    ): Bitmap {
+        if (shape != "round" && shape != "square") return bitmap
         val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        canvas.drawOval(RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()), paint)
+        val rect = RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+        if (shape == "round") {
+            canvas.drawOval(rect, paint)
+        } else {
+            val radiusPx = cornerRadius.coerceIn(0f, 0.5f) * (bitmap.width / 2f)
+            canvas.drawRoundRect(rect, radiusPx, radiusPx, paint)
+        }
         paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
         canvas.drawBitmap(bitmap, 0f, 0f, paint)
         return output
@@ -159,6 +170,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private fun settingsPrefs() = getApplication<Application>().getSharedPreferences("settings", Context.MODE_PRIVATE)
     private fun currentIconScale() = settingsPrefs().getFloat("icon_scale", 1.0f)
     private fun currentIconShape() = settingsPrefs().getString("icon_shape", "none")
+    private fun currentCornerRadius() = settingsPrefs().getFloat("icon_corner_radius", 0.2f)
 
     fun toggleFavorite(packageName: String) {
         val list = _favorites.value.toMutableList()

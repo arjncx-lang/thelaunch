@@ -10,6 +10,7 @@ import android.graphics.drawable.AdaptiveIconDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.widget.ImageView
 import android.widget.RadioGroup
 import android.widget.SeekBar
@@ -72,15 +73,7 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().putString("orientation_lock", if (checked) "portrait" else "none").apply()
         }
 
-        val rgIconShape = findViewById<RadioGroup>(R.id.rgIconShape)
-        rgIconShape.check(if (prefs.getString("icon_shape", "none") == "round") R.id.rbRound else R.id.rbNoCrop)
-        rgIconShape.setOnCheckedChangeListener { _, checkedId ->
-            val shape = if (checkedId == R.id.rbRound) "round" else "none"
-            prefs.edit().putString("icon_shape", shape).apply()
-            viewModel.refreshApps(forceReload = true)
-        }
-
-        setupIconScale(prefs)
+        setupIconAppearance(prefs)
 
         val llHiddenApps = findViewById<LinearLayout>(R.id.llHiddenApps)
         val tvNoHiddenApps = findViewById<TextView>(R.id.tvNoHiddenApps)
@@ -107,9 +100,10 @@ class SettingsActivity : AppCompatActivity() {
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
-    // Mirrors LauncherViewModel's icon pipeline (raw compose, then scale) so the slider preview
-    // matches exactly what the app grid will show, using the launcher's own adaptive icon as the sample.
-    private fun setupIconScale(prefs: android.content.SharedPreferences) {
+    // Mirrors LauncherViewModel's icon pipeline (raw compose, then scale, then shape mask) so the
+    // preview matches exactly what the app grid will show, using the launcher's own adaptive icon
+    // as the sample. Shape, zoom and corner radius all feed the same preview image.
+    private fun setupIconAppearance(prefs: android.content.SharedPreferences) {
         val previewPx = (40 * resources.displayMetrics.density).toInt()
         val previewDrawable = try {
             packageManager.getApplicationIcon(packageName)
@@ -118,28 +112,67 @@ class SettingsActivity : AppCompatActivity() {
         }
         val rawPreview = composeRaw(previewDrawable, previewPx)
 
+        val rgIconShape = findViewById<RadioGroup>(R.id.rgIconShape)
+        val rowCornerRadius = findViewById<LinearLayout>(R.id.rowCornerRadius)
         val ivPreview = findViewById<ImageView>(R.id.ivIconScalePreview)
-        val tvValue = findViewById<TextView>(R.id.tvIconScaleValue)
-        val seek = findViewById<SeekBar>(R.id.seekIconScale)
+        val tvScaleValue = findViewById<TextView>(R.id.tvIconScaleValue)
+        val seekScale = findViewById<SeekBar>(R.id.seekIconScale)
+        val tvRadiusValue = findViewById<TextView>(R.id.tvCornerRadiusValue)
+        val seekRadius = findViewById<SeekBar>(R.id.seekCornerRadius)
 
-        fun render(progress: Int) {
-            val scale = 0.5f + progress / 100f
-            tvValue.text = "${(scale * 100).toInt()}%"
-            ivPreview.setImageBitmap(scaleBitmap(rawPreview, previewPx, scale))
+        fun currentShape(): String = when (rgIconShape.checkedRadioButtonId) {
+            R.id.rbRound -> "round"
+            R.id.rbSquare -> "square"
+            else -> "none"
         }
 
-        val savedScale = prefs.getFloat("icon_scale", 1.0f)
-        val initialProgress = ((savedScale - 0.5f) * 100).toInt().coerceIn(0, 100)
-        seek.progress = initialProgress
-        render(initialProgress)
+        fun render() {
+            val scale = 0.5f + seekScale.progress / 100f
+            val radiusFraction = seekRadius.progress / 100f
+            tvScaleValue.text = "${(scale * 100).toInt()}%"
+            tvRadiusValue.text = "${seekRadius.progress}%"
+            val scaled = scaleBitmap(rawPreview, previewPx, scale)
+            ivPreview.setImageBitmap(maskBitmap(scaled, currentShape(), radiusFraction))
+        }
 
-        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                render(progress)
+        rgIconShape.check(
+            when (prefs.getString("icon_shape", "none")) {
+                "round" -> R.id.rbRound
+                "square" -> R.id.rbSquare
+                else -> R.id.rbNoCrop
             }
+        )
+        rowCornerRadius.visibility = if (currentShape() == "square") View.VISIBLE else View.GONE
+
+        val savedScale = prefs.getFloat("icon_scale", 1.0f)
+        seekScale.progress = ((savedScale - 0.5f) * 100).toInt().coerceIn(0, 100)
+
+        val savedRadius = prefs.getFloat("icon_corner_radius", 0.2f)
+        seekRadius.progress = (savedRadius * 100).toInt().coerceIn(0, 50)
+
+        render()
+
+        rgIconShape.setOnCheckedChangeListener { _, _ ->
+            rowCornerRadius.visibility = if (currentShape() == "square") View.VISIBLE else View.GONE
+            render()
+            prefs.edit().putString("icon_shape", currentShape()).apply()
+            viewModel.refreshApps(forceReload = true)
+        }
+
+        seekScale.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) = render()
             override fun onStartTrackingTouch(sb: SeekBar) {}
             override fun onStopTrackingTouch(sb: SeekBar) {
                 prefs.edit().putFloat("icon_scale", 0.5f + sb.progress / 100f).apply()
+                viewModel.refreshApps(forceReload = true)
+            }
+        })
+
+        seekRadius.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) = render()
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {
+                prefs.edit().putFloat("icon_corner_radius", sb.progress / 100f).apply()
                 viewModel.refreshApps(forceReload = true)
             }
         })
@@ -165,6 +198,23 @@ class SettingsActivity : AppCompatActivity() {
         val offset = (size - newSize) / 2f
         val destRect = RectF(offset, offset, offset + newSize, offset + newSize)
         canvas.drawBitmap(bitmap, null, destRect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+        return output
+    }
+
+    private fun maskBitmap(bitmap: Bitmap, shape: String, cornerRadiusFraction: Float): Bitmap {
+        if (shape != "round" && shape != "square") return bitmap
+        val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val rect = RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+        if (shape == "round") {
+            canvas.drawOval(rect, paint)
+        } else {
+            val radiusPx = cornerRadiusFraction.coerceIn(0f, 0.5f) * (bitmap.width / 2f)
+            canvas.drawRoundRect(rect, radiusPx, radiusPx, paint)
+        }
+        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(bitmap, 0f, 0f, paint)
         return output
     }
 

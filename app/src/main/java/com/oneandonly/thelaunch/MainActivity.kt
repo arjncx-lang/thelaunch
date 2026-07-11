@@ -58,8 +58,7 @@ class MainActivity : AppCompatActivity() {
         // Seed from current prefs so the first onResume() (which fires right after onCreate)
         // doesn't see a "change" and force a redundant second icon reload right after the
         // ViewModel's own init already loaded everything once.
-        val settingsPrefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        lastIconShape = "${settingsPrefs.getString("icon_shape", "none")}|${settingsPrefs.getFloat("icon_scale", 1.0f)}"
+        lastIconShape = iconAppearanceFingerprint()
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
@@ -206,10 +205,10 @@ class MainActivity : AppCompatActivity() {
         val searchEnabled = prefs.getBoolean("search_enabled", true)
         findViewById<ImageView>(R.id.btnSearch).visibility = if (searchEnabled) View.VISIBLE else View.GONE
 
-        // Icon shape/scale live in a separate ViewModel instance's preference (SettingsActivity),
-        // so a change there won't retroactively repaint icons already cached here — force a
-        // reload if either changed since we were last resumed.
-        val iconAppearance = "${prefs.getString("icon_shape", "none")}|${prefs.getFloat("icon_scale", 1.0f)}"
+        // Icon shape/scale/radius live in a separate ViewModel instance's preference
+        // (SettingsActivity), so a change there won't retroactively repaint icons already cached
+        // here — force a reload if any of them changed since we were last resumed.
+        val iconAppearance = iconAppearanceFingerprint()
         val iconAppearanceChanged = iconAppearance != lastIconShape
         lastIconShape = iconAppearance
 
@@ -232,6 +231,11 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         try { unregisterReceiver(packageReceiver) } catch (_: Exception) {}
+    }
+
+    private fun iconAppearanceFingerprint(): String {
+        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        return "${prefs.getString("icon_shape", "none")}|${prefs.getFloat("icon_scale", 1.0f)}|${prefs.getFloat("icon_corner_radius", 0.2f)}"
     }
 
     private fun openSearch(etSearch: EditText) {
