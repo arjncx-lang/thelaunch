@@ -1,6 +1,7 @@
 package com.oneandonly.thelaunch
 
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.ImageView
@@ -70,6 +71,15 @@ class SettingsActivity : AppCompatActivity() {
         } catch (_: Exception) { "" }
 
         findViewById<ImageView>(R.id.btnBack).setOnClickListener { finish() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        requestedOrientation = if (prefs.getString("orientation_lock", "none") == "portrait")
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        else
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
     private fun renderHiddenApps(container: LinearLayout, emptyLabel: TextView, hidden: List<AppInfo>) {

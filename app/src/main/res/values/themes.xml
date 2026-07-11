@@ -11,7 +11,7 @@
     </style>
 
     <style name="Theme.Thelaunch.Settings" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:windowBackground">#1A1A2E</item>
+        <item name="android:windowBackground">#000000</item>
         <item name="android:statusBarColor">#00000000</item>
         <item name="android:navigationBarColor">#00000000</item>
     </style>
