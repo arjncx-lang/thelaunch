@@ -20,8 +20,7 @@ class AppAdapter(
             override fun getOldListSize() = items.size
             override fun getNewListSize() = newList.size
             override fun areItemsTheSame(o: Int, n: Int) =
-                items[o].packageName == newList[n].packageName &&
-                items[o].userHandle == newList[n].userHandle
+                items[o].id == newList[n].id
             override fun areContentsTheSame(o: Int, n: Int) = items[o] == newList[n]
         })
         items = newList

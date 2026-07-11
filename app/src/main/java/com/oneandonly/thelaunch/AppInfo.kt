@@ -9,5 +9,9 @@ data class AppInfo(
     val activityName: String,
     val icon: Bitmap,
     val userHandle: UserHandle,
-    val isWorkProfile: Boolean = false
-)
+    val isWorkProfile: Boolean = false,
+    val isShortcut: Boolean = false,
+    val shortcutUrl: String? = null
+) {
+    val id: String get() = "$packageName|$activityName|$userHandle"
+}

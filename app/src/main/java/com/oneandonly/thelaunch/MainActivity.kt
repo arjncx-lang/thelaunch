@@ -1,5 +1,7 @@
 package com.oneandonly.thelaunch
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,11 +14,13 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -59,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         val llDock = findViewById<LinearLayout>(R.id.llDock)
         val btnSettings = findViewById<ImageView>(R.id.btnSettings)
         val btnRefresh = findViewById<ImageView>(R.id.btnRefresh)
+        val btnAddShortcut = findViewById<ImageView>(R.id.btnAddShortcut)
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { _, insets ->
             val sb = insets.getInsets(WindowInsetsCompat.Type.statusBars())
@@ -74,10 +79,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnRefresh.setOnClickListener {
-            it.animate().rotationBy(360f).setDuration(400).start()
+            val spin = ObjectAnimator.ofFloat(it, View.ROTATION, it.rotation, it.rotation + 360f).apply {
+                duration = 700
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                start()
+            }
             etSearch.text?.clear()
-            viewModel.refreshApps(forceReload = true)
+            val job = viewModel.refreshApps(forceReload = true)
+            job.invokeOnCompletion {
+                runOnUiThread { spin.cancel() }
+            }
         }
+
+        btnAddShortcut.setOnClickListener { showAddShortcutDialog() }
 
         // Clock loop — respects show_time pref
         lifecycleScope.launch {
@@ -235,7 +250,7 @@ class MainActivity : AppCompatActivity() {
         val options = buildList {
             add("Open")
             add(if (isFav) "Remove from Dock" else "Add to Dock")
-            add("App Info")
+            if (app.isShortcut) add("Delete Shortcut") else add("App Info")
         }.toTypedArray()
 
         AlertDialog.Builder(this)
@@ -244,6 +259,7 @@ class MainActivity : AppCompatActivity() {
                 when (options[i]) {
                     "Open" -> viewModel.launchApp(app)
                     "Remove from Dock", "Add to Dock" -> viewModel.toggleFavorite(app.packageName)
+                    "Delete Shortcut" -> viewModel.deleteShortcut(app)
                     "App Info" -> startActivity(
                         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                             data = Uri.fromParts("package", app.packageName, null)
@@ -252,6 +268,79 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
             }
+            .show()
+    }
+
+    private fun showAddShortcutDialog() {
+        val density = resources.displayMetrics.density
+        var fetchedIcon: android.graphics.Bitmap? = null
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((20 * density).toInt(), (16 * density).toInt(), (20 * density).toInt(), 0)
+        }
+
+        val ivPreview = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams((48 * density).toInt(), (48 * density).toInt()).also {
+                it.gravity = Gravity.CENTER_HORIZONTAL
+                it.bottomMargin = (12 * density).toInt()
+            }
+            setImageBitmap(viewModel.defaultWebIcon())
+        }
+        container.addView(ivPreview)
+
+        val etUrl = EditText(this).apply {
+            hint = "Website URL (e.g. amazon.com)"
+            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+        }
+        container.addView(etUrl)
+
+        val btnFetch = TextView(this).apply {
+            text = "Fetch icon"
+            setPadding(0, (10 * density).toInt(), 0, (10 * density).toInt())
+            setTextColor(ContextCompat.getColor(this@MainActivity, android.R.color.holo_blue_light))
+        }
+        container.addView(btnFetch)
+
+        val etTitle = EditText(this).apply {
+            hint = "Title for this shortcut"
+        }
+        container.addView(etTitle)
+
+        btnFetch.setOnClickListener {
+            val url = etUrl.text?.toString()?.trim().orEmpty()
+            if (url.isBlank()) {
+                Toast.makeText(this, "Enter a URL first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val spin = ObjectAnimator.ofFloat(btnFetch, View.ALPHA, 1f, 0.3f, 1f).apply {
+                duration = 500
+                repeatCount = ValueAnimator.INFINITE
+                start()
+            }
+            lifecycleScope.launch {
+                val bmp = viewModel.fetchFavicon(url)
+                spin.cancel()
+                btnFetch.alpha = 1f
+                if (bmp != null) {
+                    fetchedIcon = bmp
+                    ivPreview.setImageBitmap(bmp)
+                } else {
+                    Toast.makeText(this@MainActivity, "Couldn't fetch icon, using default", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Add website shortcut")
+            .setView(container)
+            .setPositiveButton("Add") { _, _ ->
+                val url = etUrl.text?.toString()?.trim().orEmpty()
+                if (url.isBlank()) return@setPositiveButton
+                val title = etTitle.text?.toString()?.trim()?.ifBlank { url } ?: url
+                viewModel.addShortcut(title, url, fetchedIcon ?: viewModel.defaultWebIcon())
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

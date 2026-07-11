@@ -41,6 +41,15 @@
                 android:textSize="13sp" />
 
             <ImageView
+                android:id="@+id/btnAddShortcut"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_add"
+                android:padding="8dp"
+                android:alpha="0.5"
+                android:contentDescription="Add website shortcut" />
+
+            <ImageView
                 android:id="@+id/btnRefresh"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
