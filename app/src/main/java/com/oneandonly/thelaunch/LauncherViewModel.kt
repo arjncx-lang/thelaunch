@@ -146,6 +146,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return output
     }
 
+    // Resizes to iconPx without applying the user's zoom factor — used for shortcut favicons.
+    private fun normalizeIconSize(bitmap: Bitmap): Bitmap = applyIconScale(bitmap, 1.0f)
+
     private fun applyIconShape(
         bitmap: Bitmap,
         shape: String? = currentIconShape(),
@@ -242,7 +245,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             label = title,
             packageName = id,
             activityName = "",
-            icon = applyIconShape(applyIconScale(icon)),
+            // Shortcuts follow the icon shape setting but not the zoom slider — favicons are
+            // small, flat images with no adaptive-icon safe-zone padding, so zooming them the
+            // same way as app icons just crops the logo.
+            icon = applyIconShape(normalizeIconSize(icon)),
             userHandle = Process.myUserHandle(),
             isWorkProfile = false,
             isShortcut = true,
@@ -286,7 +292,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     label = obj.getString("title"),
                     packageName = id,
                     activityName = "",
-                    icon = applyIconShape(applyIconScale(icon ?: defaultWebIcon())),
+                    icon = applyIconShape(normalizeIconSize(icon ?: defaultWebIcon())),
                     userHandle = myUser,
                     isWorkProfile = false,
                     isShortcut = true,
