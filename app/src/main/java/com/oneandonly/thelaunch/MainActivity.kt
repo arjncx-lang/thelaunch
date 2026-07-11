@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private val viewModel by lazy { ViewModelProvider(this)[LauncherViewModel::class.java] }
     private lateinit var adapter: AppAdapter
     private var allApps: List<AppInfo> = emptyList()
+    private var lastIconShape: String? = null
 
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) { viewModel.refreshApps() }
@@ -199,7 +200,14 @@ class MainActivity : AppCompatActivity() {
         val searchEnabled = prefs.getBoolean("search_enabled", true)
         findViewById<ImageView>(R.id.btnSearch).visibility = if (searchEnabled) View.VISIBLE else View.GONE
 
-        viewModel.refreshApps()
+        // Icon shape/scale live in a separate ViewModel instance's preference (SettingsActivity),
+        // so a change there won't retroactively repaint icons already cached here — force a
+        // reload if either changed since we were last resumed.
+        val iconAppearance = "${prefs.getString("icon_shape", "none")}|${prefs.getFloat("icon_scale", 1.0f)}"
+        val iconAppearanceChanged = iconAppearance != lastIconShape
+        lastIconShape = iconAppearance
+
+        viewModel.refreshApps(forceReload = iconAppearanceChanged)
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)

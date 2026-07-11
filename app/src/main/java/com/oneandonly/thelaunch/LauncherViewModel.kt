@@ -8,7 +8,15 @@ import android.content.SharedPreferences
 import android.content.pm.LauncherApps
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
+import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Process
 import android.os.UserManager
 import androidx.core.content.ContextCompat
@@ -92,13 +100,59 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         label = info.label.toString(),
                         packageName = info.applicationInfo.packageName,
                         activityName = info.componentName.className,
-                        icon = info.getIcon(density).toBitmap(iconPx, iconPx),
+                        icon = applyIconShape(applyIconScale(rawIconBitmap(info.getIcon(density)))),
                         userHandle = userHandle,
                         isWorkProfile = userHandle != myUser
                     )
                 }
             } catch (_: Exception) { emptyList() }
         }
+    }
+
+    // AdaptiveIconDrawable.draw() clips itself to the device's current system icon-mask shape
+    // (circle/squircle/rounded-square/etc) regardless of what the app actually shipped. Drawing
+    // the background/foreground layers directly onto the canvas bypasses that OS-imposed mask
+    // and shows the icon exactly as the app packaged it.
+    private fun rawIconBitmap(drawable: Drawable): Bitmap {
+        val bmp = Bitmap.createBitmap(iconPx, iconPx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable is AdaptiveIconDrawable) {
+            drawable.background?.apply { setBounds(0, 0, iconPx, iconPx); draw(canvas) }
+            drawable.foreground?.apply { setBounds(0, 0, iconPx, iconPx); draw(canvas) }
+        } else {
+            drawable.setBounds(0, 0, iconPx, iconPx)
+            drawable.draw(canvas)
+        }
+        return bmp
+    }
+
+    private fun applyIconScale(bitmap: Bitmap): Bitmap {
+        val scale = getApplication<Application>()
+            .getSharedPreferences("settings", Context.MODE_PRIVATE)
+            .getFloat("icon_scale", 1.0f)
+        if (scale == 1.0f) return bitmap
+        val output = Bitmap.createBitmap(iconPx, iconPx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val newSize = iconPx * scale
+        val offset = (iconPx - newSize) / 2f
+        val destRect = RectF(offset, offset, offset + newSize, offset + newSize)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(bitmap, null, destRect, paint)
+        return output
+    }
+
+    private fun applyIconShape(bitmap: Bitmap): Bitmap {
+        val shape = getApplication<Application>()
+            .getSharedPreferences("settings", Context.MODE_PRIVATE)
+            .getString("icon_shape", "none")
+        if (shape != "round") return bitmap
+        val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        canvas.drawOval(RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()), paint)
+        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(bitmap, 0f, 0f, paint)
+        return output
     }
 
     fun toggleFavorite(packageName: String) {
@@ -166,7 +220,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             label = title,
             packageName = id,
             activityName = "",
-            icon = icon,
+            icon = applyIconShape(applyIconScale(icon)),
             userHandle = Process.myUserHandle(),
             isWorkProfile = false,
             isShortcut = true,
@@ -210,7 +264,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     label = obj.getString("title"),
                     packageName = id,
                     activityName = "",
-                    icon = icon ?: defaultWebIcon(),
+                    icon = applyIconShape(applyIconScale(icon ?: defaultWebIcon())),
                     userHandle = myUser,
                     isWorkProfile = false,
                     isShortcut = true,
