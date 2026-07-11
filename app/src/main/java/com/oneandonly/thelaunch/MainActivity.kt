@@ -102,6 +102,7 @@ class MainActivity : AppCompatActivity() {
                 job.join()
                 delay(700)
                 spin.cancel()
+                Toast.makeText(this@MainActivity, "Refreshed", Toast.LENGTH_SHORT).show()
             }
         }
 
