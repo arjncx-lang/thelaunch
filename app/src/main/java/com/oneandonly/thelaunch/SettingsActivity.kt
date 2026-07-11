@@ -51,6 +51,12 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().putBoolean("show_wallpaper", checked).apply()
         }
 
+        val switchSearch = findViewById<Switch>(R.id.switchSearch)
+        switchSearch.isChecked = prefs.getBoolean("search_enabled", true)
+        switchSearch.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean("search_enabled", checked).apply()
+        }
+
         val switchPortraitLock = findViewById<Switch>(R.id.switchPortraitLock)
         switchPortraitLock.isChecked = prefs.getString("orientation_lock", "none") == "portrait"
         switchPortraitLock.setOnCheckedChangeListener { _, checked ->

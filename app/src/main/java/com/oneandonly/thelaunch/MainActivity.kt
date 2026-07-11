@@ -196,6 +196,9 @@ class MainActivity : AppCompatActivity() {
         val etSearch = findViewById<EditText>(R.id.etSearch)
         if (etSearch.visibility == View.VISIBLE) closeSearch(etSearch)
 
+        val searchEnabled = prefs.getBoolean("search_enabled", true)
+        findViewById<ImageView>(R.id.btnSearch).visibility = if (searchEnabled) View.VISIBLE else View.GONE
+
         viewModel.refreshApps()
 
         val filter = IntentFilter().apply {
