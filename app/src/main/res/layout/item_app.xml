@@ -4,17 +4,22 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:gravity="center"
-    android:padding="10dp">
+    android:padding="10dp"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
     <FrameLayout
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
         <ImageView
             android:id="@+id/ivIcon"
             android:layout_width="52dp"
             android:layout_height="52dp"
-            android:scaleType="fitCenter" />
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true" />
 
         <TextView
             android:id="@+id/tvBadge"
@@ -37,7 +42,8 @@
         android:layout_marginTop="4dp"
         android:ellipsize="end"
         android:gravity="center"
-        android:maxLines="1"
+        android:maxLines="2"
+        android:lineSpacingMultiplier="0.95"
         android:textColor="#FFFFFF"
         android:textSize="11sp" />
 

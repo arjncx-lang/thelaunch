@@ -11,7 +11,9 @@ data class AppInfo(
     val userHandle: UserHandle,
     val isWorkProfile: Boolean = false,
     val isShortcut: Boolean = false,
-    val shortcutUrl: String? = null
+    val shortcutUrl: String? = null,
+    /** Virtual entry mixed into Apple Watch honeycomb (not a real installed app). */
+    val isLauncherSettings: Boolean = false
 ) {
     val id: String get() = "$packageName|$activityName|$userHandle"
 }

@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
@@ -19,6 +20,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.os.UserManager
+import android.util.DisplayMetrics
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
@@ -38,6 +40,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -49,7 +54,23 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val userManager =
         application.getSystemService(Context.USER_SERVICE) as UserManager
 
-    private val iconPx = (52 * application.resources.displayMetrics.density).toInt()
+    /**
+     * Raster size for every app icon bitmap.
+     *
+     * Must be large enough for Apple Watch zoom + fish-eye (center icons can be
+     * ~54dp × 2.4 × 1.18 ≈ 153dp). Rendering at ~52dp and upscaling later is what
+     * made icons look soft/blurry. Cap at 512px to keep memory reasonable.
+     */
+    private val iconPx: Int = run {
+        val density = application.resources.displayMetrics.density
+        (128f * density).toInt().coerceIn(256, 512)
+    }
+
+    /** Ask the system for high-DPI icon assets (xxxhdpi or better when available). */
+    private val iconLoadDpi: Int = run {
+        val dpi = application.resources.displayMetrics.densityDpi
+        min(dpi * 2, DisplayMetrics.DENSITY_XXXHIGH * 2)
+    }
 
     private val _installedApps = MutableStateFlow<List<AppInfo>>(emptyList())
     private val _shortcuts = MutableStateFlow<List<AppInfo>>(emptyList())
@@ -82,20 +103,28 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refreshApps(forceReload: Boolean = false): Job = viewModelScope.launch(Dispatchers.IO) {
+        // SettingsActivity uses a separate ViewModel instance; re-read prefs so hide/unhide
+        // (and dock favorites) made there show up immediately when we return to the home grid.
+        loadHidden()
+        loadFavorites()
+
         val myPkg = getApplication<Application>().packageName
         val myUser = Process.myUserHandle()
-        val density = getApplication<Application>().resources.displayMetrics.densityDpi
         // Read shape/scale once per refresh instead of once per icon — refreshApps() can iterate
         // hundreds of installed activities.
         val settingsPrefs = getApplication<Application>().getSharedPreferences("settings", Context.MODE_PRIVATE)
-        val shape = settingsPrefs.getString("icon_shape", "none")
+        val shape = settingsPrefs.getString("icon_shape", "square").let {
+            if (it == "round" || it == "square" || it == "hexagon" || it == "original") it else "square"
+        }
         val scale = settingsPrefs.getFloat("icon_scale", 1.0f)
         val cornerRadius = settingsPrefs.getFloat("icon_corner_radius", 0.2f)
         // Cache must be keyed per-activity, not per-package: some packages (e.g. Google/Gemini,
         // Amazon/Amazon Pay) expose multiple launcher activities under the same packageName, and
         // collapsing them onto one cache key caused duplicate icons and launched the wrong activity.
+        // Also drop cache when icon pixel size changes (upgrade path from the old 52dp bitmaps).
         val cache = if (forceReload) emptyMap()
             else _installedApps.value.associateBy { it.id }
+                .filterValues { it.icon.width >= iconPx && it.icon.height >= iconPx }
 
         _installedApps.value = userManager.userProfiles.flatMap { userHandle ->
             try {
@@ -106,7 +135,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         label = info.label.toString(),
                         packageName = info.applicationInfo.packageName,
                         activityName = info.componentName.className,
-                        icon = applyIconShape(applyIconScale(rawIconBitmap(info.getIcon(density)), scale), shape, cornerRadius),
+                        icon = applyIconShape(
+                            applyIconScale(
+                                rawIconBitmap(
+                                    info.getIcon(iconLoadDpi),
+                                    // Original = glyph only: no adaptive background plate, no mask.
+                                    foregroundOnly = shape == "original"
+                                ),
+                                scale
+                            ),
+                            shape,
+                            cornerRadius
+                        ),
                         userHandle = userHandle,
                         isWorkProfile = userHandle != myUser
                     )
@@ -128,16 +168,34 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // AdaptiveIconDrawable.draw() clips itself to the device's current system icon-mask shape
-    // (circle/squircle/rounded-square/etc) regardless of what the app actually shipped. Drawing
-    // the background/foreground layers directly onto the canvas bypasses that OS-imposed mask
-    // and shows the icon exactly as the app packaged it.
-    private fun rawIconBitmap(drawable: Drawable): Bitmap {
+    /**
+     * Rasterize a launcher icon into [iconPx].
+     *
+     * Adaptive icons normally have a solid **background** plate + **foreground** glyph.
+     * - Default: draw both (full adaptive art) without the OS squircle mask.
+     * - [foregroundOnly] (Original shape): draw only the foreground on a transparent
+     *   canvas — no background color plate and no shape mask later.
+     */
+    private fun rawIconBitmap(drawable: Drawable, foregroundOnly: Boolean = false): Bitmap {
         val bmp = Bitmap.createBitmap(iconPx, iconPx, Bitmap.Config.ARGB_8888)
+        // DENSITY_NONE → ImageView/canvas treat pixels 1:1; we size the view in dp ourselves.
+        bmp.density = Bitmap.DENSITY_NONE
+        // Leave transparent — no fill — so Original mode has no plate behind the glyph.
         val canvas = Canvas(bmp)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable is AdaptiveIconDrawable) {
-            drawable.background?.apply { setBounds(0, 0, iconPx, iconPx); draw(canvas) }
-            drawable.foreground?.apply { setBounds(0, 0, iconPx, iconPx); draw(canvas) }
+            drawable.setBounds(0, 0, iconPx, iconPx)
+            if (!foregroundOnly) {
+                drawable.background?.apply { setBounds(0, 0, iconPx, iconPx); draw(canvas) }
+            }
+            // Prefer foreground-only art; if missing, fall back to full drawable.
+            val fg = drawable.foreground
+            if (fg != null) {
+                fg.setBounds(0, 0, iconPx, iconPx)
+                fg.draw(canvas)
+            } else if (foregroundOnly) {
+                drawable.setBounds(0, 0, iconPx, iconPx)
+                drawable.draw(canvas)
+            }
         } else {
             drawable.setBounds(0, 0, iconPx, iconPx)
             drawable.draw(canvas)
@@ -149,11 +207,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // app or fetched favicon of arbitrary size) ends up pixel-uniform instead of favicons staying
     // at whatever size the network happened to return.
     private fun applyIconScale(bitmap: Bitmap, scale: Float = currentIconScale()): Bitmap {
+        if (scale == 1f && bitmap.width == iconPx && bitmap.height == iconPx) {
+            return bitmap
+        }
         val output = Bitmap.createBitmap(iconPx, iconPx, Bitmap.Config.ARGB_8888)
+        output.density = Bitmap.DENSITY_NONE
         val canvas = Canvas(output)
         val newSize = iconPx * scale
         val offset = (iconPx - newSize) / 2f
         val destRect = RectF(offset, offset, offset + newSize, offset + newSize)
+        // FILTER_BITMAP only helps when downscaling a higher-res source into the cell.
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         canvas.drawBitmap(bitmap, null, destRect, paint)
         return output
@@ -167,25 +230,51 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         shape: String? = currentIconShape(),
         cornerRadius: Float = currentCornerRadius()
     ): Bitmap {
-        if (shape != "round" && shape != "square") return bitmap
+        // "original" = foreground glyph only, transparent, no mask (see rawIconBitmap).
+        if (shape == "original" || (shape != "round" && shape != "square" && shape != "hexagon")) {
+            return bitmap
+        }
         val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        output.density = Bitmap.DENSITY_NONE
         val canvas = Canvas(output)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         val rect = RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
-        if (shape == "round") {
-            canvas.drawOval(rect, paint)
-        } else {
-            val radiusPx = cornerRadius.coerceIn(0f, 0.5f) * (bitmap.width / 2f)
-            canvas.drawRoundRect(rect, radiusPx, radiusPx, paint)
+        when (shape) {
+            "round" -> canvas.drawOval(rect, paint)
+            "hexagon" -> canvas.drawPath(flatTopHexagonPath(bitmap.width.toFloat()), paint)
+            else -> {
+                val radiusPx = cornerRadius.coerceIn(0f, 0.5f) * (bitmap.width / 2f)
+                canvas.drawRoundRect(rect, radiusPx, radiusPx, paint)
+            }
         }
         paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
         canvas.drawBitmap(bitmap, 0f, 0f, paint)
         return output
     }
 
+    /** Flat-top regular hexagon inscribed in a size×size square (Apple Clean Mode). */
+    private fun flatTopHexagonPath(size: Float): Path {
+        val path = Path()
+        val cx = size / 2f
+        val cy = size / 2f
+        // Slight inset keeps anti-aliased edges from clipping against the bitmap bounds.
+        val r = size / 2f - 0.5f
+        for (i in 0 until 6) {
+            // Flat-top: start at -30° so left/right edges are vertical.
+            val angle = Math.PI / 3.0 * i - Math.PI / 6.0
+            val x = cx + r * cos(angle).toFloat()
+            val y = cy + r * sin(angle).toFloat()
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
+        return path
+    }
+
     private fun settingsPrefs() = getApplication<Application>().getSharedPreferences("settings", Context.MODE_PRIVATE)
     private fun currentIconScale() = settingsPrefs().getFloat("icon_scale", 1.0f)
-    private fun currentIconShape() = settingsPrefs().getString("icon_shape", "none")
+    private fun currentIconShape() = settingsPrefs().getString("icon_shape", "square").let {
+        if (it == "round" || it == "square" || it == "hexagon" || it == "original") it else "square"
+    }
     private fun currentCornerRadius() = settingsPrefs().getFloat("icon_corner_radius", 0.2f)
 
     fun toggleFavorite(packageName: String) {
